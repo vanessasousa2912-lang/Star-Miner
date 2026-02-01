@@ -292,63 +292,75 @@
         </button>
     </nav>
 
-    <!-- Scripts do Firebase -->
+    <!-- Scripts do Firebase com Proteção contra Erros -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'relogio-producao';
+        // Proteção: Só tenta ligar ao Firebase se as variáveis existirem
+        const canUseFirebase = typeof __firebase_config !== 'undefined';
+        
+        if (canUseFirebase) {
+            const firebaseConfig = JSON.parse(__firebase_config);
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+            const auth = getAuth(app);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'relogio-pessoal';
 
-        let currentUser = null;
+            let currentUser = null;
 
-        const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
-            }
-        };
-        initAuth();
+            const initAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) { console.warn("Erro no login anónimo:", e); }
+            };
+            initAuth();
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                currentUser = user;
-                loadUserData();
-            }
-        });
-
-        window.saveUserData = async (data) => {
-            if (!currentUser) return;
-            const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
-            await setDoc(userDoc, data, { merge: true });
-        };
-
-        async function loadUserData() {
-            if (!currentUser) return;
-            const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
-            const snap = await getDoc(userDoc);
-            if (snap.exists()) {
-                const data = snap.data();
-                if (data.darkMode) {
-                    document.documentElement.classList.add('dark');
-                    document.getElementById('sunIcon').classList.remove('hidden');
-                    document.getElementById('moonIcon').classList.add('hidden');
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    loadUserData();
                 }
-                if (data.eventDate) {
-                    document.getElementById('eventInput').value = data.eventDate;
-                    window.startEventCountdown(false);
-                }
+            });
+
+            window.saveUserData = async (data) => {
+                if (!currentUser) return;
+                try {
+                    const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
+                    await setDoc(userDoc, data, { merge: true });
+                } catch (e) { console.error("Erro ao guardar dados:", e); }
+            };
+
+            async function loadUserData() {
+                try {
+                    const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
+                    const snap = await getDoc(userDoc);
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        if (data.darkMode) {
+                            document.documentElement.classList.add('dark');
+                            document.getElementById('sunIcon').classList.remove('hidden');
+                            document.getElementById('moonIcon').classList.add('hidden');
+                        }
+                        if (data.eventDate) {
+                            document.getElementById('eventInput').value = data.eventDate;
+                            window.startEventCountdown(false);
+                        }
+                    }
+                } catch (e) { console.warn("Não foi possível carregar dados da cloud."); }
             }
+        } else {
+            console.log("Ambiente sem Firebase Config. Funcionalidades de Cloud desativadas.");
         }
     </script>
 
     <script>
-        // Audio Logic
+        // Lógica de Áudio
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playAlarmSound(d = 0.5, f = 880) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -391,11 +403,13 @@
         }
         createBlobs();
 
-        // Clock
+        // Relógio
         function updateClock() {
             const now = new Date();
-            document.getElementById('clock').textContent = now.toLocaleTimeString('pt-BR');
-            document.getElementById('date').textContent = now.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            const clockEl = document.getElementById('clock');
+            if (clockEl) clockEl.textContent = now.toLocaleTimeString('pt-BR');
+            const dateEl = document.getElementById('date');
+            if (dateEl) dateEl.textContent = now.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         }
         setInterval(updateClock, 1000); updateClock();
 
@@ -408,7 +422,7 @@
             document.getElementById('tab-' + t).classList.add('active');
         }
 
-        // Stopwatch
+        // Cronómetro
         let swI, swT = 0, swR = false;
         function toggleStopwatch() {
             swR = !swR;
@@ -456,7 +470,7 @@
         }
         function resetTimer() { clearInterval(tiI); tiR = false; window.updateTimerDisplay(); document.getElementById('btnTimer').textContent = 'Iniciar'; document.getElementById('btnTimer').classList.remove('paused'); }
 
-        // Event
+        // Evento
         let evI;
         window.startEventCountdown = (save = true) => {
             clearInterval(evI);
@@ -472,7 +486,7 @@
             }, 1000);
         };
 
-        // Theme
+        // Tema
         document.getElementById('themeToggle').onclick = () => {
             const isDark = document.documentElement.classList.toggle('dark');
             document.getElementById('sunIcon').classList.toggle('hidden', !isDark);
