@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meu Relógio Pessoal - Cloud Storage</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        .clock-text {
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.05em;
+        }
+
+        /* Estilo Lâmpada de Lava */
+        .lava-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            filter: blur(60px);
+            opacity: 0.6;
+        }
+
+        .blob {
+            position: absolute;
+            background: #3b82f6;
+            border-radius: 50%;
+            animation: move linear infinite;
+        }
+
+        @keyframes move {
+            from { transform: translateY(110vh) scale(1); }
+            to { transform: translateY(-20vh) scale(1.3); }
+        }
+
+        .dark .blob {
+            background: #8b5cf6;
+        }
+
+        .active-tab {
+            color: #3b82f6;
+            border-top: 2px solid #3b82f6;
+        }
+
+        .dark .active-tab {
+            color: #a78bfa;
+            border-top: 2px solid #a78bfa;
+        }
+
+        /* Feedback de Alarme */
+        .alarm-active {
+            animation: alarm-flash 0.5s infinite alternate;
+        }
+
+        @keyframes alarm-flash {
+            from { background-color: rgba(239, 68, 68, 0.2); }
+            to { background-color: rgba(239, 68, 68, 0.6); }
+        }
+
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100 min-h-screen flex flex-col items-center justify-center transition-colors duration-500">
+
+    <div class="lava-container" id="lavaBackground"></div>
+
+    <!-- Botão de Som/Tema -->
+    <div class="z-20 absolute top-6 right-6 flex gap-2">
+        <button onclick="playAlarmSound(0.1, 880)" title="Testar Som" class="p-2 rounded-full border border-slate-200 dark:border-zinc-800 hover:bg-white dark:hover:bg-zinc-900 shadow-sm transition-all">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M12 9v6m0 0l-3-3m3 3l3-3"></path></svg>
+        </button>
+        <button id="themeToggle" class="p-2 rounded-full border border-slate-200 dark:border-zinc-800 hover:bg-white dark:hover:bg-zinc-900 shadow-sm transition-all">
+            <svg id="sunIcon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path></svg>
+            <svg id="moonIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 118.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+        </button>
+    </div>
+
+    <!-- Overlay de Alarme Ativo -->
+    <div id="alarmOverlay" class="hidden fixed inset-0 z-50 flex flex-col items-center justify-center bg-red-600/90 backdrop-blur-md text-white p-6 text-center">
+        <h2 class="text-4xl font-bold mb-4 animate-bounce">TEMPO ESGOTADO!</h2>
+        <p class="text-xl mb-8">O alarme continuará tocando até você pará-lo.</p>
+        <button onclick="stopAlarm()" class="px-12 py-6 bg-white text-red-600 rounded-full text-2xl font-black shadow-2xl hover:scale-105 transition-transform active:scale-95">
+            PARAR ALARME
+        </button>
+    </div>
+
+    <main class="flex-1 flex flex-col items-center justify-center w-full max-w-xl px-6 relative z-10">
+        
+        <!-- Aba: Relógio -->
+        <section id="view-clock" class="text-center space-y-2">
+            <div id="location" class="text-sm font-medium opacity-60 flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span id="locationText">Localizando...</span>
+            </div>
+            <h1 id="clock" class="text-7xl md:text-8xl font-bold clock-text py-4">00:00:00</h1>
+            <p id="date" class="text-lg font-light opacity-80 uppercase tracking-widest"></p>
+        </section>
+
+        <!-- Aba: Cronômetro -->
+        <section id="view-stopwatch" class="hidden text-center space-y-6">
+            <h1 id="stopwatchDisplay" class="text-7xl font-bold clock-text">00:00.00</h1>
+            <div class="flex gap-4 justify-center">
+                <button onclick="toggleStopwatch()" id="btnStopwatch" class="px-8 py-3 bg-blue-500 text-white rounded-full font-bold shadow-lg shadow-blue-500/30 transition-all">Iniciar</button>
+                <button onclick="resetStopwatch()" class="px-8 py-3 border border-slate-300 dark:border-zinc-700 rounded-full hover:bg-white dark:hover:bg-zinc-800 transition-colors">Zerar</button>
+            </div>
+        </section>
+
+        <!-- Aba: Timer -->
+        <section id="view-timer" class="hidden text-center space-y-6">
+            <div id="timerDisplay" class="text-5xl md:text-7xl font-bold clock-text transition-all">00:00:05:00</div>
+            <div class="grid grid-cols-4 gap-2 max-w-xs mx-auto">
+                <div class="flex flex-col"><label class="text-[10px] uppercase opacity-50">Dias</label><input type="number" id="t-d" value="0" min="0" class="p-2 rounded bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center"></div>
+                <div class="flex flex-col"><label class="text-[10px] uppercase opacity-50">Horas</label><input type="number" id="t-h" value="0" min="0" class="p-2 rounded bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center"></div>
+                <div class="flex flex-col"><label class="text-[10px] uppercase opacity-50">Min</label><input type="number" id="t-m" value="5" min="0" class="p-2 rounded bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center"></div>
+                <div class="flex flex-col"><label class="text-[10px] uppercase opacity-50">Seg</label><input type="number" id="t-s" value="0" min="0" class="p-2 rounded bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center"></div>
+            </div>
+            <div class="flex gap-4 justify-center">
+                <button onclick="setAndToggleTimer()" id="btnTimer" class="px-8 py-3 bg-blue-500 text-white rounded-full font-bold shadow-lg shadow-blue-500/30 transition-all">Iniciar</button>
+                <button onclick="resetTimer()" class="px-8 py-3 border border-slate-300 dark:border-zinc-700 rounded-full hover:bg-white dark:hover:bg-zinc-800 transition-colors">Zerar</button>
+            </div>
+        </section>
+
+        <!-- Aba: Marcar Evento -->
+        <section id="view-event" class="hidden text-center space-y-6">
+            <div class="space-y-1">
+                <h2 class="text-sm uppercase tracking-widest opacity-60">Contagem Regressiva para</h2>
+                <div id="eventDisplay" class="text-4xl md:text-5xl font-bold clock-text text-blue-500 dark:text-purple-400">00d 00h 00m 00s</div>
+            </div>
+            <div class="bg-white/50 dark:bg-zinc-900/50 p-6 rounded-3xl border border-slate-200 dark:border-zinc-800 backdrop-blur-sm space-y-4">
+                <div class="flex flex-col items-start gap-1">
+                    <label class="text-xs font-bold opacity-70">Data e Hora do Evento:</label>
+                    <input type="datetime-local" id="eventInput" class="w-full p-3 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
+                </div>
+                <button onclick="startEventCountdown()" class="w-full py-3 bg-slate-900 dark:bg-white text-white dark:text-black rounded-xl font-bold transition-transform active:scale-95">Marcar Evento</button>
+            </div>
+        </section>
+
+    </main>
+
+    <nav class="w-full max-w-md bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-t border-slate-200 dark:border-zinc-800 flex justify-around items-center h-20 pb-4 z-20">
+        <button onclick="switchTab('clock')" id="tab-clock" class="flex flex-col items-center pt-2 active-tab transition-all">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="text-[10px] font-bold mt-1">Relógio</span>
+        </button>
+        <button onclick="switchTab('stopwatch')" id="tab-stopwatch" class="flex flex-col items-center pt-2 transition-all opacity-50">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="text-[10px] font-bold mt-1">Cronômetro</span>
+        </button>
+        <button onclick="switchTab('timer')" id="tab-timer" class="flex flex-col items-center pt-2 transition-all opacity-50">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="text-[10px] font-bold mt-1">Timer</span>
+        </button>
+        <button onclick="switchTab('event')" id="tab-event" class="flex flex-col items-center pt-2 transition-all opacity-50">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="text-[10px] font-bold mt-1">Evento</span>
+        </button>
+    </nav>
+
+    <!-- Scripts do Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+        // Configuração Global
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'relogio-pessoal-luis';
+
+        let currentUser = null;
+
+        // Inicialização do Auth
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                loadUserData();
+            }
+        });
+
+        // Função Global para salvar
+        window.saveUserData = async (data) => {
+            if (!currentUser) return;
+            try {
+                // Caminho rigoroso conforme regra: /artifacts/{appId}/users/{userId}/{collectionName}
+                const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
+                await setDoc(userDoc, data, { merge: true });
+            } catch (e) { 
+                console.error("Erro ao salvar no Firestore:", e); 
+            }
+        };
+
+        // Função para carregar
+        async function loadUserData() {
+            if (!currentUser) return;
+            try {
+                const userDoc = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'settings', 'prefs');
+                const docSnap = await getDoc(userDoc);
+                
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    
+                    if (data.timer) {
+                        document.getElementById('t-d').value = data.timer.d || 0;
+                        document.getElementById('t-h').value = data.timer.h || 0;
+                        document.getElementById('t-m').value = data.timer.m || 5;
+                        document.getElementById('t-s').value = data.timer.s || 0;
+                        window.timerSecondsTotal = (data.timer.d * 86400) + (data.timer.h * 3600) + (data.timer.m * 60) + (data.timer.s);
+                        window.updateTimerDisplay();
+                    }
+
+                    if (data.eventDate) {
+                        document.getElementById('eventInput').value = data.eventDate;
+                        window.startEventCountdown(false);
+                    }
+
+                    if (data.darkMode) {
+                        document.documentElement.classList.add('dark');
+                        document.getElementById('sunIcon').classList.remove('hidden');
+                        document.getElementById('moonIcon').classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.error("Erro ao carregar dados:", e);
+            }
+        }
+    </script>
+
+    <script>
+        // --- MOTOR DE ÁUDIO ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playAlarmSound(duration = 0.5, freq = 880) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.type = 'square'; 
+            oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + duration);
+        }
+
+        let alarmInterval;
+        let alarmStep = 0;
+        
+        function triggerAlarm() {
+            if (alarmInterval) return;
+            document.getElementById('alarmOverlay').classList.remove('hidden');
+            document.body.classList.add('alarm-active');
+            alarmInterval = setInterval(() => {
+                const frequency = alarmStep % 2 === 0 ? 880 : 660;
+                playAlarmSound(0.4, frequency);
+                alarmStep++;
+            }, 500);
+        }
+
+        function stopAlarm() {
+            clearInterval(alarmInterval);
+            alarmInterval = null;
+            document.getElementById('alarmOverlay').classList.add('hidden');
+            document.body.classList.remove('alarm-active');
+        }
+
+        // --- SISTEMA LAVA LAMP ---
+        function createBlobs() {
+            const container = document.getElementById('lavaBackground');
+            const blobCount = 15;
+            for (let i = 0; i < blobCount; i++) {
+                const blob = document.createElement('div');
+                blob.className = 'blob';
+                const size = Math.random() * 180 + 120 + 'px';
+                blob.style.width = size;
+                blob.style.height = size;
+                blob.style.left = Math.random() * 100 + 'vw';
+                blob.style.animationDuration = Math.random() * 25 + 15 + 's';
+                blob.style.animationDelay = Math.random() * -30 + 's';
+                blob.style.opacity = Math.random() * 0.4 + 0.1;
+                container.appendChild(blob);
+            }
+        }
+        createBlobs();
+
+        // --- RELÓGIO ---
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString('pt-BR');
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('date').textContent = now.toLocaleDateString('pt-BR', options);
+        }
+
+        async function getLocation() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const { latitude, longitude } = position.coords;
+                    try {
+                        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+                        const data = await response.json();
+                        document.getElementById('locationText').textContent = data.address.city || data.address.town || "Local Atual";
+                    } catch (e) { document.getElementById('locationText').textContent = "Localização Indisponível"; }
+                });
+            }
+        }
+
+        function switchTab(tab) {
+            ['clock', 'stopwatch', 'timer', 'event'].forEach(t => {
+                document.getElementById('view-' + t).classList.add('hidden');
+                document.getElementById('tab-' + t).classList.remove('active-tab');
+                document.getElementById('tab-' + t).classList.add('opacity-50');
+            });
+            document.getElementById('view-' + tab).classList.remove('hidden');
+            document.getElementById('tab-' + tab).classList.add('active-tab');
+            document.getElementById('tab-' + tab).classList.remove('opacity-50');
+        }
+
+        // --- CRONÔMETRO ---
+        let swInterval;
+        let swTime = 0;
+        let swRunning = false;
+
+        function toggleStopwatch() {
+            swRunning = !swRunning;
+            const btn = document.getElementById('btnStopwatch');
+            if (swRunning) {
+                btn.textContent = 'Pausar';
+                btn.classList.replace('bg-blue-500', 'bg-red-500');
+                swInterval = setInterval(() => { swTime += 10; updateStopwatchDisplay(); }, 10);
+            } else {
+                btn.textContent = 'Continuar';
+                btn.classList.replace('bg-red-500', 'bg-blue-500');
+                clearInterval(swInterval);
+            }
+        }
+
+        function resetStopwatch() {
+            clearInterval(swInterval);
+            swTime = 0; swRunning = false;
+            updateStopwatchDisplay();
+            const btn = document.getElementById('btnStopwatch');
+            btn.textContent = 'Iniciar';
+            btn.classList.replace('bg-red-500', 'bg-blue-500');
+        }
+
+        function updateStopwatchDisplay() {
+            const ms = Math.floor((swTime % 1000) / 10);
+            const s = Math.floor((swTime / 1000) % 60);
+            const m = Math.floor((swTime / 60000) % 60);
+            document.getElementById('stopwatchDisplay').textContent = 
+                `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+        }
+
+        // --- TIMER ---
+        let timerInterval;
+        window.timerSecondsTotal = 300; 
+        let timerRunning = false;
+
+        window.updateTimerDisplay = function() {
+            let total = window.timerSecondsTotal;
+            const d = Math.floor(total / 86400); total %= 86400;
+            const h = Math.floor(total / 3600); total %= 3600;
+            const m = Math.floor(total / 60);
+            const s = total % 60;
+            document.getElementById('timerDisplay').textContent = 
+                `${String(d).padStart(2, '0')}:${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function setAndToggleTimer() {
+            if (!timerRunning) {
+                const d = parseInt(document.getElementById('t-d').value) || 0;
+                const h = parseInt(document.getElementById('t-h').value) || 0;
+                const m = parseInt(document.getElementById('t-m').value) || 0;
+                const s = parseInt(document.getElementById('t-s').value) || 0;
+                window.timerSecondsTotal = (d * 86400) + (h * 3600) + (m * 60) + s;
+                if (window.saveUserData) window.saveUserData({ timer: { d, h, m, s } });
+                if (window.timerSecondsTotal <= 0) return;
+            }
+            timerRunning = !timerRunning;
+            const btn = document.getElementById('btnTimer');
+            if (timerRunning) {
+                btn.textContent = 'Pausar';
+                btn.classList.replace('bg-blue-500', 'bg-red-500');
+                timerInterval = setInterval(() => {
+                    if (window.timerSecondsTotal > 0) { window.timerSecondsTotal--; window.updateTimerDisplay(); }
+                    else { clearInterval(timerInterval); triggerAlarm(); resetTimer(); }
+                }, 1000);
+            } else {
+                btn.textContent = 'Continuar';
+                btn.classList.replace('bg-red-500', 'bg-blue-500');
+                clearInterval(timerInterval);
+            }
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            timerRunning = false;
+            const d = parseInt(document.getElementById('t-d').value) || 0;
+            const h = parseInt(document.getElementById('t-h').value) || 0;
+            const m = parseInt(document.getElementById('t-m').value) || 0;
+            const s = parseInt(document.getElementById('t-s').value) || 0;
+            window.timerSecondsTotal = (d * 86400) + (h * 3600) + (m * 60) + s;
+            window.updateTimerDisplay();
+            const btn = document.getElementById('btnTimer');
+            btn.textContent = 'Iniciar';
+            btn.classList.replace('bg-red-500', 'bg-blue-500');
+        }
+
+        // --- MARCAR EVENTO ---
+        let eventInterval;
+        window.startEventCountdown = function(shouldTriggerAlarm = true) {
+            clearInterval(eventInterval);
+            const input = document.getElementById('eventInput').value;
+            if (!input) return;
+            if (window.saveUserData && shouldTriggerAlarm) window.saveUserData({ eventDate: input });
+            const targetDate = new Date(input).getTime();
+            eventInterval = setInterval(() => {
+                const now = new Date().getTime();
+                const distance = targetDate - now;
+                if (distance < 0) {
+                    clearInterval(eventInterval);
+                    document.getElementById('eventDisplay').textContent = "Evento Chegou!";
+                    if (shouldTriggerAlarm) triggerAlarm();
+                    return;
+                }
+                const d = Math.floor(distance / (1000 * 60 * 60 * 24));
+                const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((distance % (1000 * 60)) / 1000);
+                document.getElementById('eventDisplay').textContent = `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+            }, 1000);
+        }
+
+        // --- TEMA ---
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+            const isDark = document.documentElement.classList.contains('dark');
+            document.getElementById('sunIcon').classList.toggle('hidden', !isDark);
+            document.getElementById('moonIcon').classList.toggle('hidden', isDark);
+            if (window.saveUserData) window.saveUserData({ darkMode: isDark });
+        });
+
+        setInterval(updateClock, 1000);
+        updateClock();
+        getLocation();
+        window.updateTimerDisplay();
+    </script>
+</body>
+</html>
